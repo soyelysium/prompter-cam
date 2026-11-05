@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>Prompter Cam</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+:root{
+  --bg:#000; --panel:rgba(14,16,15,.92); --line:rgba(255,255,255,.14); --fg:#f4f2ea; --dim:#a3aaa5;
+  --accent:#ffb627; --rec:#ff3b30;
+  --f-read:"Atkinson Hyperlegible",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-read);overflow:hidden;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+
+/* Camera */
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+#cam.mirror{transform:scaleX(-1)}
+
+/* Prompter band (top, close to the lens) */
+.band{position:fixed;left:0;right:0;top:0;height:var(--band,44%);overflow:hidden;
+  background:linear-gradient(rgba(0,0,0,var(--shade,.62)) 70%,rgba(0,0,0,0));
+  padding-top:env(safe-area-inset-top,0px)}
+.scroller{position:absolute;left:0;right:0;top:0;will-change:transform;
+  padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+.text{max-width:30em;margin:0 auto;font-weight:700;line-height:1.3;white-space:pre-wrap;word-wrap:break-word;
+  text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.guide{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(255,182,39,.55);pointer-events:none}
+.guide::before{content:"";position:absolute;left:4px;top:-8px;border:7px solid transparent;border-left-color:var(--accent)}
+
+/* Top status */
+.status{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));
+  display:flex;align-items:center;gap:6px;font-family:var(--f-mono);font-size:14px;background:rgba(0,0,0,.55);
+  padding:5px 10px;border-radius:99px;font-variant-numeric:tabular-nums;z-index:5}
+.status i{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+
+.count{position:fixed;inset:0;display:grid;place-items:center;font-family:var(--f-mono);font-size:min(40vw,200px);
+  color:var(--accent);text-shadow:0 2px 20px rgba(0,0,0,.6);z-index:6;pointer-events:none}
+
+/* Bottom controls */
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;flex-direction:column;gap:12px;
+  padding-block:14px calc(14px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.75) 35%)}
+.sl{display:grid;grid-template-columns:70px 1fr 38px;align-items:center;gap:8px;font-size:12px;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.06em}
+.sl output{font-family:var(--f-mono);color:var(--fg);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.side{flex:1;display:flex;gap:8px}
+.side.r{justify-content:flex-end}
+.pill{border:1px solid var(--line);background:rgba(0,0,0,.45);border-radius:12px;padding:10px 12px;font-size:13px;white-space:nowrap}
+.pill[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.rec{width:76px;height:76px;border-radius:50%;border:4px solid #fff;background:transparent;display:grid;place-items:center;flex:0 0 auto}
+.rec span{width:56px;height:56px;border-radius:50%;background:var(--rec);transition:all .2s}
+.rec.on span{width:28px;height:28px;border-radius:7px}
+.sub{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+
+/* Sheets */
+.sheet{position:fixed;inset:0;z-index:10;background:#0d0f0e;display:flex;flex-direction:column;gap:12px;
+  padding-block:calc(16px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.sheet header{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.sheet h1{margin:0;font-size:20px}
+.meta{font-family:var(--f-mono);font-size:12px;color:var(--dim)}
+textarea{flex:1;min-height:0;width:100%;resize:none;background:#171a19;border:1px solid var(--line);border-radius:12px;
+  padding:14px;font-size:17px;line-height:1.5;-webkit-user-select:text;user-select:text}
+.actions{display:flex;gap:8px}
+.primary{flex:1;border:0;border-radius:12px;padding:15px;background:var(--accent);color:#1a1200;font-weight:700;font-size:16px}
+.ghost{border:1px solid var(--line);background:transparent;border-radius:12px;padding:15px 16px;font-size:15px}
+.note{margin:0;font-size:13px;color:var(--dim);line-height:1.45}
+video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;object-fit:contain}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;max-width:420px;margin:0 auto;text-align:center}
+.center h1{font-size:26px}
+.err{color:#ff8a80}
+</style>
+</head>
+<body>
+
+<video id="cam" playsinline autoplay muted></video>
+
+<div class="band" id="band">
+  <div class="scroller" id="scroller"><div class="text" id="text"></div></div>
+  <div class="guide" id="guide"></div>
+</div>
+
+<div class="status" id="status" hidden><i></i><span id="timer">0:00</span></div>
+<div class="count" id="count" hidden></div>
+
+<div class="bar" id="bar">
+  <label class="sl">Velocidad<input id="speed" type="range" min="1" max="20" value="5"><output id="speedOut">5</output></label>
+  <label class="sl">Letra<input id="size" type="range" min="20" max="64" step="2" value="32"><output id="sizeOut">32</output></label>
+  <div class="row">
+    <div class="side"><button class="pill" id="edit">Guion</button></div>
+    <button class="rec" id="rec" aria-label="Grabar"><span></span></button>
+    <div class="side r"><button class="pill" id="flip">Girar cámara</button></div>
+  </div>
+  <div class="sub">
+    <button class="pill" id="restart">Texto al inicio</button>
+    <button class="pill" id="test">Probar sin grabar</button>
+    <button class="pill" id="cdBtn" aria-pressed="true">Cuenta 3s</button>
+  </div>
+</div>
+
+<!-- Start screen (camera needs a tap on iPhone) -->
+<div class="sheet" id="start">
+  <div class="center">
+    <h1>Prompter Cam</h1>
+    <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
+    <button class="primary" id="go">Activar cámara y micrófono</button>
+    <p class="note err" id="err" hidden></p>
+  </div>
+</div>
+
+<!-- Script editor -->
+<div class="sheet" id="sheet" hidden>
+  <header><h1>Tu guion</h1><span class="meta" id="meta"></span></header>
+  <textarea id="script" spellcheck="false" placeholder="Pega aquí tu guion…"></textarea>
+  <p class="note">Se guarda en este teléfono. Deja líneas en blanco entre bloques para respirar.</p>
+  <div class="actions">
+    <button class="ghost" id="clear">Borrar</button>
+    <button class="primary" id="done">Listo</button>
+  </div>
+</div>
+
+<!-- Review -->
+<div class="sheet" id="review" hidden>
+  <header><h1>Tu toma</h1><span class="meta" id="rmeta"></span></header>
+  <video class="review" id="playback" playsinline controls></video>
+  <div class="actions">
+    <button class="ghost" id="discard">Repetir</button>
+    <button class="primary" id="save">Guardar video</button>
+  </div>
+  <p class="note" id="saveNote">En iPhone: toca Guardar y elige "Guardar video" para mandarlo a Fotos.</p>
+</div>
+
+<script>
+const EXAMPLE=`[Ejemplo — toca "Guion" y pega el tuyo]
+
+En 1518, en la ciudad de Estrasburgo, una mujer salió a la calle y empezó a bailar.
+
+No paró. Ni ese día, ni el siguiente.
+
+En una semana ya eran decenas de personas bailando sin poder detenerse.
+
+Y lo más loco es que las autoridades pensaron que la solución era… más baile.
+
+Esto pasó de verdad.`;
+
+const $=id=>document.getElementById(id);
+const cam=$('cam'),band=$('band'),scroller=$('scroller'),text=$('text'),guide=$('guide'),
+      speed=$('speed'),size=$('size'),recBtn=$('rec'),count=$('count'),statusEl=$('status'),timerEl=$('timer');
+const store={get(k,d){try{const v=localStorage.getItem('pcam:'+k);return v===null?d:v}catch(e){return d}},
+             set(k,v){try{localStorage.setItem('pcam:'+k,v)}catch(e){}}};
+
+/* ---------- Camera ---------- */
+let stream=null,facing=store.get('facing','user');
+async function openCam(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:facing,width:{ideal:1080},height:{ideal:1920},frameRate:{ideal:30}},
+    audio:{echoCancellation:true,noiseSuppression:true}
+  });
+  cam.srcObject=stream;
+  cam.classList.toggle('mirror',facing==='user');
+  await cam.play().catch(()=>{});
+}
+$('go').onclick=async()=>{
+  const err=$('err');err.hidden=true;
+  if(!navigator.mediaDevices||!window.MediaRecorder){
+    err.textContent='Este navegador no permite grabar aquí. Abre el enlace en Safari (iPhone) o Chrome (Android).';err.hidden=false;return;
+  }
+  try{await openCam();$('start').hidden=true;layout();lockScreen()}
+  catch(e){err.textContent='No pude abrir la cámara. Revisa que le diste permiso al navegador para usar cámara y micrófono, y vuelve a intentar.';err.hidden=false}
+};
+$('flip').onclick=async()=>{
+  if(recorder)return;
+  facing=facing==='user'?'environment':'user';store.set('facing',facing);
+  try{await openCam()}catch(e){}
+};
+
+/* ---------- Prompter ---------- */
+let y=0,scrolling=false,last=0,raf=0;
+const GUIDE_FRAC=0.38; // reading line inside the band
+function bandH(){return band.clientHeight}
+function guideY(){return bandH()*GUIDE_FRAC}
+function maxY(){return Math.max(0,text.offsetHeight-20)}
+function render(){scroller.style.transform=`translateY(${guideY()-y}px)`}
+function layout(){guide.style.top=guideY()+'px';render()}
+function setText(t){text.textContent=t||' ';layout()}
+function pxPerSec(){return speed.value*size.value*0.11}
+function tick(t){
+  if(!scrolling)return;
+  const dt=last?(t-last)/1000:0;last=t;
+  y=Math.min(maxY(),y+pxPerSec()*dt);render();
+  if(y<maxY())raf=requestAnimationFrame(tick);else scrolling=false;
+}
+function startScroll(){scrolling=true;last=0;raf=requestAnimationFrame(tick)}
+function stopScroll(){scrolling=false;cancelAnimationFrame(raf)}
+
+// tap band = pause/resume scroll, drag = move text
+let d0=null,y0=0,moved=false;
+band.addEventListener('pointerdown',e=>{d0=e.clientY;y0=y;moved=false;band.setPointerCapture(e.pointerId)});
+band.addEventListener('pointermove',e=>{if(d0===null)return;const d=d0-e.clientY;if(Math.abs(d)>6)moved=true;
+  if(moved){y=Math.min(maxY(),Math.max(0,y0+d));render()}});
+band.addEventListener('pointerup',()=>{if(d0!==null&&!moved){scrolling?stopScroll():startScroll()}d0=null});
+
+speed.oninput=()=>{$('speedOut').textContent=speed.value;store.set('speed',speed.value)};
+size.oninput=()=>{$('sizeOut').textContent=size.value;text.style.fontSize=size.value+'px';store.set('size',size.value);layout()};
+$('restart').onclick=()=>{stopScroll();y=0;render()};
+$('test').onclick=()=>{if(recorder)return;scrolling?stopScroll():startScroll()};
+$('cdBtn').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);store.set('cd',on?'1':'0')};
+
+/* ---------- Recording ---------- */
+let recorder=null,chunks=[],blob=null,blobUrl=null,t0=0,timerInt=null,cdInt=null,ext='mp4';
+function pickType(){
+  const opts=['video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  for(const o of opts)if(MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(o))return o;
+  return '';
+}
+function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
+function beginRecording(){
+  const type=pickType();ext=type.includes('webm')?'webm':'mp4';
+  chunks=[];
+  try{recorder=new MediaRecorder(stream,type?{mimeType:type,videoBitsPerSecond:8000000}:{})}
+  catch(e){recorder=new MediaRecorder(stream)}
+  recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  recorder.onstop=showReview;
+  recorder.start(1000);
+  t0=Date.now();timerEl.textContent='0:00';statusEl.hidden=false;
+  timerInt=setInterval(()=>timerEl.textContent=fmt((Date.now()-t0)/1000),250);
+  recBtn.classList.add('on');recBtn.setAttribute('aria-label','Detener');
+  startScroll();
+}
+function startRec(){
+  if(!stream||recorder||cdInt)return;
+  if(y>=maxY()){y=0;render()}
+  if($('cdBtn').getAttribute('aria-pressed')==='true'){
+    let n=3;count.textContent=n;count.hidden=false;recBtn.classList.add('on');
+    cdInt=setInterval(()=>{n--;if(n<=0){clearInterval(cdInt);cdInt=null;count.hidden=true;beginRecording()}else count.textContent=n},1000);
+  }else beginRecording();
+}
+function stopRec(){
+  if(cdInt){clearInterval(cdInt);cdInt=null;count.hidden=true;recBtn.classList.remove('on');return}
+  if(!recorder)return;
+  stopScroll();clearInterval(timerInt);statusEl.hidden=true;
+  recBtn.classList.remove('on');recBtn.setAttribute('aria-label','Grabar');
+  recorder.stop();
+}
+recBtn.onclick=()=>recorder||cdInt?stopRec():startRec();
+
+function showReview(){
+  blob=new Blob(chunks,{type:recorder.mimeType||('video/'+ext)});
+  recorder=null;
+  if(blobUrl)URL.revokeObjectURL(blobUrl);
+  blobUrl=URL.createObjectURL(blob);
+  $('playback').src=blobUrl;
+  $('rmeta').textContent=fmt((Date.now()-t0)/1000)+' · '+(blob.size/1048576).toFixed(1)+' MB';
+  $('review').hidden=false;
+}
+$('discard').onclick=()=>{$('playback').pause();$('review').hidden=true;y=0;render()};
+$('save').onclick=async()=>{
+  const name='toma-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.'+ext;
+  const file=new File([blob],name,{type:blob.type});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file]});return}catch(e){if(e.name==='AbortError')return}
+  }
+  const a=document.createElement('a');a.href=blobUrl;a.download=name;document.body.appendChild(a);a.click();a.remove();
+};
+
+/* ---------- Script editor ---------- */
+const script=$('script');
+function updateMeta(){const w=(script.value.trim().match(/\S+/g)||[]).length,s=Math.round(w/150*60);
+  $('meta').textContent=`${w} palabras · ~${fmt(s)}`}
+$('edit').onclick=()=>{if(recorder)return;stopScroll();script.value=store.get('script',EXAMPLE);updateMeta();$('sheet').hidden=false};
+script.oninput=()=>{store.set('script',script.value);updateMeta()};
+$('clear').onclick=()=>{script.value='';store.set('script','');updateMeta();script.focus()};
+$('done').onclick=()=>{setText(script.value.trim()||EXAMPLE);y=0;$('sheet').hidden=true;render()};
+
+/* ---------- Screen awake ---------- */
+let wake=null;
+async function lockScreen(){try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen')}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream)lockScreen()});
+window.addEventListener('resize',layout);
+
+/* ---------- Init ---------- */
+speed.value=store.get('speed','5');size.value=store.get('size','32');
+if(store.get('cd','1')==='0')$('cdBtn').setAttribute('aria-pressed','false');
+speed.oninput();size.oninput();setText(store.get('script',EXAMPLE));
+document.fonts&&document.fonts.ready.then(layout);
+</script>
+</body>
+</html>
