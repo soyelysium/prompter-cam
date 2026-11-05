@@ -122,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 6 · mejor resolución</p>
+    <p class="note">Versión 7 · 60 fps</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -190,8 +190,12 @@ async function openCam(){
     audioStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
   }
   $('diag').textContent='Buscando la mejor calidad…';$('diag').hidden=false;
-  const base={facingMode:facing,frameRate:{ideal:30}};
+  const base={facingMode:facing,frameRate:{ideal:60}};
   const tries=[
+    {width:{exact:3840},height:{exact:2160},frameRate:{exact:60}},
+    {width:{exact:2160},height:{exact:3840},frameRate:{exact:60}},
+    {width:{exact:1080},height:{exact:1920},frameRate:{exact:60}},
+    {width:{exact:2560},height:{exact:1440},frameRate:{exact:60}},
     {width:{exact:2160},height:{exact:3840}},
     {width:{exact:3840},height:{exact:2160}},
     {width:{exact:1080},height:{exact:1920}},
@@ -204,17 +208,19 @@ async function openCam(){
   ];
   // iPhone allows one live capture per camera, so test each option, stop it, then reopen the winner
   let bestC=null,bestScore=-1;const FULL=1080*1920;
-  const key='best:'+facing,saved=store.get(key,'');
+  const key='best60:'+facing,saved=store.get(key,'');
   if(saved){try{tries.unshift(JSON.parse(saved))}catch(e){}}
   for(const c of tries){
     let s1;
     try{s1=await navigator.mediaDevices.getUserMedia({video:{...base,...c}})}catch(e){continue}
     const tr=s1.getVideoTracks()[0];
+    const st=tr.getSettings?tr.getSettings():{};
+    const fps=Math.round(st.frameRate||30);
     const [w,h]=await frameSize(tr);
     tr.stop();
-    const sc=w&&h?vScore(w,h):0;
+    const sc=w&&h?vScore(w,h)*10+(fps>=50?5:0):0;
     if(sc>bestScore){bestC=c;bestScore=sc}
-    if(bestScore>=FULL)break;
+    if(bestScore>=FULL*10+5)break;
   }
   let best=null;
   try{best=(await navigator.mediaDevices.getUserMedia({video:{...base,...(bestC||{})}})).getVideoTracks()[0]}
@@ -283,7 +289,7 @@ function pickType(){
 }
 function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
 /* Always record vertical 9:16: crop the center of whatever the camera delivers */
-let canvas=null,drawRaf=0,canvasStream=null;
+let canvas=null,drawRaf=0,canvasStream=null,camFps=30;
 function verticalStream(){
   const vw=cam.videoWidth,vh=cam.videoHeight;
   if(!vw||!vh)return stream;
@@ -296,7 +302,8 @@ function verticalStream(){
   const ctx=canvas.getContext('2d');
   const draw=()=>{ctx.drawImage(cam,sx,sy,sw,sh,0,0,canvas.width,canvas.height);drawRaf=requestAnimationFrame(draw)};
   draw();
-  canvasStream=canvas.captureStream(30);
+  camFps=Math.round((stream.getVideoTracks()[0].getSettings().frameRate)||30);
+  canvasStream=canvas.captureStream(camFps>=50?60:30);
   stream.getAudioTracks().forEach(t=>canvasStream.addTrack(t));
   return canvasStream;
 }
@@ -304,7 +311,8 @@ function showDiag(){
   const vw=cam.videoWidth,vh=cam.videoHeight;if(!vw)return;
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
-  $('diag').textContent=`v6 · cámara ${vw}×${vh} → video ${ow}×${oh-(oh%2)}`;
+  const f=Math.round((stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings().frameRate)||0);
+  $('diag').textContent=`v7 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
@@ -314,7 +322,7 @@ function beginRecording(){
   const type=pickType();ext=type.includes('webm')?'webm':'mp4';
   chunks=[];
   const src=verticalStream();
-  try{recorder=new MediaRecorder(src,type?{mimeType:type,videoBitsPerSecond:10000000}:{})}
+  try{recorder=new MediaRecorder(src,type?{mimeType:type,videoBitsPerSecond:16000000}:{})}
   catch(e){recorder=new MediaRecorder(src)}
   recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
   recorder.onstop=showReview;
