@@ -49,7 +49,7 @@ button{cursor:pointer}
 .count{position:fixed;inset:0;display:grid;place-items:center;font-family:var(--f-mono);font-size:min(40vw,200px);
   color:var(--accent);text-shadow:0 2px 20px rgba(0,0,0,.6);z-index:6;pointer-events:none}
 
-.diag{display:none;position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));z-index:5;font-family:var(--f-mono);font-size:11px;background:rgba(0,0,0,.55);padding:4px 8px;border-radius:6px;color:var(--dim);pointer-events:none}
+.diag{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));z-index:5;font-family:var(--f-mono);font-size:11px;background:rgba(0,0,0,.55);padding:4px 8px;border-radius:6px;color:var(--dim);pointer-events:none}
 /* Bottom controls */
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;flex-direction:column;gap:12px;
   padding-block:14px calc(14px + env(safe-area-inset-bottom,0px));
@@ -99,7 +99,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
 
 <div class="status" id="status" hidden><i></i><span id="timer">0:00</span></div>
 <div class="count" id="count" hidden></div>
-<div class="diag" id="diag"></div>
+<div class="diag" id="diag" hidden></div>
 
 <div class="bar" id="bar">
   <label class="sl">Velocidad<input id="speed" type="range" min="1" max="20" value="5"><output id="speedOut">5</output></label>
@@ -122,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 5</p>
+    <p class="note">Versión 6 · mejor resolución</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -170,21 +170,63 @@ const store={get(k,d){try{const v=localStorage.getItem('pcam:'+k);return v===nul
 
 /* ---------- Camera ---------- */
 let stream=null,facing=store.get('facing','user');
-async function openCam(){
-  if(stream)stream.getTracks().forEach(t=>t.stop());
-  stream=await navigator.mediaDevices.getUserMedia({
-    video:{facingMode:facing,aspectRatio:{ideal:9/16},width:{ideal:1080},height:{ideal:1920},frameRate:{ideal:30}},
-    audio:{echoCancellation:true,noiseSuppression:true}
+/* Score = usable pixels after cropping to vertical 9:16 (capped at 1080x1920) */
+function vScore(w,h){const R=9/16;let cw=w,ch=h;if(w/h>R)cw=h*R;else ch=w/R;ch=Math.min(ch,1920);cw=Math.min(cw,1080);return Math.round(cw*ch)}
+function frameSize(track){
+  // real displayed size: attach to a hidden video and read it
+  return new Promise(res=>{
+    const v=document.createElement('video');v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');
+    v.srcObject=new MediaStream([track]);
+    const done=()=>{const r=[v.videoWidth,v.videoHeight];v.srcObject=null;res(r)};
+    const t=setTimeout(done,2500);
+    v.onloadedmetadata=()=>{clearTimeout(t);setTimeout(done,150)};
+    v.play().catch(()=>{});
   });
-  const vt=stream.getVideoTracks()[0],st=vt.getSettings?vt.getSettings():{};
-  if(st.width&&st.height&&st.width>st.height){
-    // landscape feed (e.g. square front sensor): ask for 4K so the vertical crop stays sharp
-    try{await vt.applyConstraints({width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}})}catch(e){}
+}
+let audioStream=null;
+async function openCam(){
+  if(stream)stream.getVideoTracks().forEach(t=>t.stop());
+  if(!audioStream||!audioStream.getAudioTracks().some(t=>t.readyState==='live')){
+    audioStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
   }
+  $('diag').textContent='Buscando la mejor calidad…';$('diag').hidden=false;
+  const base={facingMode:facing,frameRate:{ideal:30}};
+  const tries=[
+    {width:{exact:2160},height:{exact:3840}},
+    {width:{exact:3840},height:{exact:2160}},
+    {width:{exact:1080},height:{exact:1920}},
+    {width:{exact:3024},height:{exact:4032}},
+    {width:{exact:4032},height:{exact:3024}},
+    {width:{exact:1440},height:{exact:1920}},
+    {width:{exact:2560},height:{exact:1440}},
+    {width:{exact:1920},height:{exact:1440}},
+    {width:{ideal:1080},height:{ideal:1920}},
+  ];
+  // iPhone allows one live capture per camera, so test each option, stop it, then reopen the winner
+  let bestC=null,bestScore=-1;const FULL=1080*1920;
+  const key='best:'+facing,saved=store.get(key,'');
+  if(saved){try{tries.unshift(JSON.parse(saved))}catch(e){}}
+  for(const c of tries){
+    let s1;
+    try{s1=await navigator.mediaDevices.getUserMedia({video:{...base,...c}})}catch(e){continue}
+    const tr=s1.getVideoTracks()[0];
+    const [w,h]=await frameSize(tr);
+    tr.stop();
+    const sc=w&&h?vScore(w,h):0;
+    if(sc>bestScore){bestC=c;bestScore=sc}
+    if(bestScore>=FULL)break;
+  }
+  let best=null;
+  try{best=(await navigator.mediaDevices.getUserMedia({video:{...base,...(bestC||{})}})).getVideoTracks()[0]}
+  catch(e){best=(await navigator.mediaDevices.getUserMedia({video:base})).getVideoTracks()[0]}
+  if(bestC)store.set(key,JSON.stringify(bestC));
+  stream=new MediaStream([best,...audioStream.getAudioTracks()]);
   cam.srcObject=stream;
   cam.onloadedmetadata=cam.onresize=showDiag;
   cam.classList.toggle('mirror',facing==='user');
   await cam.play().catch(()=>{});
+  showDiag();
+  clearTimeout(window._dt);window._dt=setTimeout(()=>{$('diag').hidden=true},10000);
 }
 $('go').onclick=async()=>{
   const err=$('err');err.hidden=true;
@@ -262,7 +304,7 @@ function showDiag(){
   const vw=cam.videoWidth,vh=cam.videoHeight;if(!vw)return;
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
-  $('diag').textContent=`v5 · cámara ${vw}×${vh} → video ${ow}×${oh-(oh%2)}`;
+  $('diag').textContent=`v6 · cámara ${vw}×${vh} → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
