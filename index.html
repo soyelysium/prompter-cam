@@ -49,6 +49,7 @@ button{cursor:pointer}
 .count{position:fixed;inset:0;display:grid;place-items:center;font-family:var(--f-mono);font-size:min(40vw,200px);
   color:var(--accent);text-shadow:0 2px 20px rgba(0,0,0,.6);z-index:6;pointer-events:none}
 
+.diag{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));z-index:5;font-family:var(--f-mono);font-size:11px;background:rgba(0,0,0,.55);padding:4px 8px;border-radius:6px;color:var(--dim);pointer-events:none}
 /* Bottom controls */
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;flex-direction:column;gap:12px;
   padding-block:14px calc(14px + env(safe-area-inset-bottom,0px));
@@ -98,6 +99,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
 
 <div class="status" id="status" hidden><i></i><span id="timer">0:00</span></div>
 <div class="count" id="count" hidden></div>
+<div class="diag" id="diag"></div>
 
 <div class="bar" id="bar">
   <label class="sl">Velocidad<input id="speed" type="range" min="1" max="20" value="5"><output id="speedOut">5</output></label>
@@ -120,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 4 · video vertical</p>
+    <p class="note">Versión 5</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -180,6 +182,7 @@ async function openCam(){
     try{await vt.applyConstraints({width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}})}catch(e){}
   }
   cam.srcObject=stream;
+  cam.onloadedmetadata=cam.onresize=showDiag;
   cam.classList.toggle('mirror',facing==='user');
   await cam.play().catch(()=>{});
 }
@@ -254,6 +257,12 @@ function verticalStream(){
   canvasStream=canvas.captureStream(30);
   stream.getAudioTracks().forEach(t=>canvasStream.addTrack(t));
   return canvasStream;
+}
+function showDiag(){
+  const vw=cam.videoWidth,vh=cam.videoHeight;if(!vw)return;
+  const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
+  const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
+  $('diag').textContent=`v5 · cámara ${vw}×${vh} → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
