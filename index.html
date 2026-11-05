@@ -34,7 +34,7 @@ button{cursor:pointer}
   padding-top:env(safe-area-inset-top,0px)}
 .scroller{position:absolute;left:0;right:0;top:0;will-change:transform;
   padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
-.text{width:var(--col,50%);max-width:30em;margin:0 auto;text-align:center;font-weight:700;line-height:1.3;white-space:pre-wrap;word-wrap:break-word;
+.text{width:40%;max-width:30em;margin:0 auto;text-align:center;font-weight:700;line-height:1.3;white-space:pre-wrap;word-wrap:break-word;
   text-shadow:0 1px 3px rgba(0,0,0,.8)}
 .guide{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(255,182,39,.55);pointer-events:none}
 .guide::before{content:"";position:absolute;left:4px;top:-8px;border:7px solid transparent;border-left-color:var(--accent)}
@@ -102,7 +102,6 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
 <div class="bar" id="bar">
   <label class="sl">Velocidad<input id="speed" type="range" min="1" max="20" value="5"><output id="speedOut">5</output></label>
   <label class="sl">Letra<input id="size" type="range" min="20" max="64" step="2" value="32"><output id="sizeOut">32</output></label>
-  <label class="sl">Ancho<input id="col" type="range" min="30" max="100" step="5" value="50"><output id="colOut">50%</output></label>
   <div class="row">
     <div class="side"><button class="pill" id="edit">Guion</button></div>
     <button class="rec" id="rec" aria-label="Grabar"><span></span></button>
@@ -220,8 +219,6 @@ band.addEventListener('pointerup',()=>{if(d0!==null&&!moved){scrolling?stopScrol
 
 speed.oninput=()=>{$('speedOut').textContent=speed.value;store.set('speed',speed.value)};
 size.oninput=()=>{$('sizeOut').textContent=size.value;text.style.fontSize=size.value+'px';store.set('size',size.value);layout()};
-const col=$('col');
-col.oninput=()=>{$('colOut').textContent=col.value+'%';document.documentElement.style.setProperty('--col',col.value+'%');store.set('col',col.value);layout()};
 $('restart').onclick=()=>{stopScroll();y=0;render()};
 $('test').onclick=()=>{if(recorder)return;scrolling?stopScroll():startScroll()};
 $('cdBtn').onclick=e=>{const on=e.currentTarget.getAttribute('aria-pressed')!=='true';e.currentTarget.setAttribute('aria-pressed',on);store.set('cd',on?'1':'0')};
@@ -301,8 +298,7 @@ window.addEventListener('resize',layout);
 /* ---------- Init ---------- */
 speed.value=store.get('speed','5');size.value=store.get('size','32');
 if(store.get('cd','1')==='0')$('cdBtn').setAttribute('aria-pressed','false');
-col.value=store.get('col','50');
-speed.oninput();size.oninput();col.oninput();setText(store.get('script',EXAMPLE));
+speed.oninput();size.oninput();setText(store.get('script',EXAMPLE));
 document.fonts&&document.fonts.ready.then(layout);
 </script>
 </body>
