@@ -120,7 +120,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 3 · columna angosta</p>
+    <p class="note">Versión 4 · video vertical</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -171,9 +171,14 @@ let stream=null,facing=store.get('facing','user');
 async function openCam(){
   if(stream)stream.getTracks().forEach(t=>t.stop());
   stream=await navigator.mediaDevices.getUserMedia({
-    video:{facingMode:facing,width:{ideal:1080},height:{ideal:1920},frameRate:{ideal:30}},
+    video:{facingMode:facing,aspectRatio:{ideal:9/16},width:{ideal:1080},height:{ideal:1920},frameRate:{ideal:30}},
     audio:{echoCancellation:true,noiseSuppression:true}
   });
+  const vt=stream.getVideoTracks()[0],st=vt.getSettings?vt.getSettings():{};
+  if(st.width&&st.height&&st.width>st.height){
+    // landscape feed (e.g. square front sensor): ask for 4K so the vertical crop stays sharp
+    try{await vt.applyConstraints({width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}})}catch(e){}
+  }
   cam.srcObject=stream;
   cam.classList.toggle('mirror',facing==='user');
   await cam.play().catch(()=>{});
@@ -232,11 +237,34 @@ function pickType(){
   return '';
 }
 function fmt(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
+/* Always record vertical 9:16: crop the center of whatever the camera delivers */
+let canvas=null,drawRaf=0,canvasStream=null;
+function verticalStream(){
+  const vw=cam.videoWidth,vh=cam.videoHeight;
+  if(!vw||!vh)return stream;
+  canvas=canvas||document.createElement('canvas');
+  if(!canvas.captureStream)return stream;
+  const R=9/16;let sx=0,sy=0,sw=vw,sh=vh;
+  if(vw/vh>R){sw=vh*R;sx=(vw-sw)/2}else{sh=vw/R;sy=(vh-sh)/2}
+  const outH=Math.min(1920,Math.round(sh)),outW=Math.round(outH*R/2)*2;
+  canvas.width=outW;canvas.height=outH-(outH%2);
+  const ctx=canvas.getContext('2d');
+  const draw=()=>{ctx.drawImage(cam,sx,sy,sw,sh,0,0,canvas.width,canvas.height);drawRaf=requestAnimationFrame(draw)};
+  draw();
+  canvasStream=canvas.captureStream(30);
+  stream.getAudioTracks().forEach(t=>canvasStream.addTrack(t));
+  return canvasStream;
+}
+function endVertical(){
+  cancelAnimationFrame(drawRaf);
+  if(canvasStream){canvasStream.getVideoTracks().forEach(t=>t.stop());canvasStream=null}
+}
 function beginRecording(){
   const type=pickType();ext=type.includes('webm')?'webm':'mp4';
   chunks=[];
-  try{recorder=new MediaRecorder(stream,type?{mimeType:type,videoBitsPerSecond:8000000}:{})}
-  catch(e){recorder=new MediaRecorder(stream)}
+  const src=verticalStream();
+  try{recorder=new MediaRecorder(src,type?{mimeType:type,videoBitsPerSecond:10000000}:{})}
+  catch(e){recorder=new MediaRecorder(src)}
   recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
   recorder.onstop=showReview;
   recorder.start(1000);
@@ -259,6 +287,7 @@ function stopRec(){
   stopScroll();clearInterval(timerInt);statusEl.hidden=true;
   recBtn.classList.remove('on');recBtn.setAttribute('aria-label','Grabar');
   recorder.stop();
+  setTimeout(endVertical,500);
 }
 recBtn.onclick=()=>recorder||cdInt?stopRec():startRec();
 
