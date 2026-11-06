@@ -36,6 +36,7 @@ button{cursor:pointer}
   padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px)); pointer-events:auto;touch-action:none;-webkit-touch-callout:none;}
 .text{width:40%;max-width:30em;margin:0 auto;text-align:center;font-weight:700;line-height:1.3;white-space:pre-wrap;word-wrap:break-word;
   text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 6px rgba(0,0,0,.6)}
+#tp{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:auto;touch-action:none;-webkit-touch-callout:none}
 .guide{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(255,182,39,.55);pointer-events:none}
 .guide::before{content:"";position:absolute;left:4px;top:-8px;border:7px solid transparent;border-left-color:var(--accent)}
 
@@ -93,7 +94,8 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
 <video id="cam" playsinline autoplay muted></video>
 
 <div class="band" id="band">
-  <div class="scroller" id="scroller"><div class="text" id="text"></div></div>
+  <div class="scroller" id="scroller" hidden><div class="text" id="text"></div></div>
+  <canvas id="tp"></canvas>
   <div class="guide" id="guide"></div>
 </div>
 
@@ -122,7 +124,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 9.2 · tocar texto sin congelar</p>
+    <p class="note">Versión 9.3 · texto liviano</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -251,10 +253,41 @@ const GUIDE_FRAC=0.38;
 function bandH(){return band.clientHeight}
 function guideY(){return window.innerHeight*0.44*GUIDE_FRAC-(band.getBoundingClientRect().top||0)}
 function fitBand(){const b=document.getElementById('bar');if(b)band.style.height=Math.max(200,b.getBoundingClientRect().top)+'px'}
-function maxY(){return Math.max(0,text.offsetHeight-20)}
-function render(){scroller.style.transform=`translateY(${guideY()-y}px)`}
-function layout(){fitBand();guide.style.top=guideY()+'px';render()}
-function setText(t){text.textContent=t||' ';layout()}
+/* El texto se dibuja en un canvas del tamaño de la pantalla: mucho más liviano que mover
+   un bloque gigante de texto encima del video (eso era lo que congelaba la cámara) */
+const tp=$('tp'),tctx=tp.getContext('2d');
+let rawText=' ',lines=[],lineH=40,W=0,H=0,DPR=1;
+function fontStr(){return `700 ${size.value}px "Atkinson Hyperlegible",system-ui,sans-serif`}
+function wrap(){
+  tctx.font=fontStr();
+  const fs=+size.value;lineH=Math.round(fs*1.3);
+  const words=rawText.split(/\s+/).filter(Boolean);
+  let longest=0;for(const w of words)longest=Math.max(longest,tctx.measureText(w).width);
+  const colW=Math.min(W-36,Math.max(W*0.40,longest));
+  lines=[];
+  for(const para of rawText.split('\n')){
+    const ws=para.split(/\s+/).filter(Boolean);
+    if(!ws.length){lines.push('');continue}
+    let cur='';
+    for(const w of ws){const t=cur?cur+' '+w:w;if(cur&&tctx.measureText(t).width>colW){lines.push(cur);cur=w}else cur=t}
+    lines.push(cur);
+  }
+}
+function maxY(){return Math.max(0,lines.length*lineH-20)}
+function render(){
+  tctx.setTransform(DPR,0,0,DPR,0,0);tctx.clearRect(0,0,W,H);
+  tctx.font=fontStr();tctx.textAlign='center';tctx.textBaseline='top';
+  tctx.lineJoin='round';tctx.lineWidth=Math.max(2,size.value*0.12);tctx.strokeStyle='rgba(0,0,0,.75)';tctx.fillStyle='#f4f2ea';
+  const off=guideY()-y,first=Math.max(0,Math.floor(-off/lineH)-1),lastL=Math.min(lines.length,Math.ceil((H-off)/lineH)+1);
+  for(let i=first;i<lastL;i++){const ln=lines[i];if(!ln)continue;const ty=off+i*lineH;tctx.strokeText(ln,W/2,ty);tctx.fillText(ln,W/2,ty)}
+}
+function layout(){
+  fitBand();
+  DPR=Math.min(window.devicePixelRatio||1,3);W=band.clientWidth;H=band.clientHeight;
+  tp.width=Math.round(W*DPR);tp.height=Math.round(H*DPR);
+  guide.style.top=guideY()+'px';wrap();y=Math.min(y,maxY());render();
+}
+function setText(t){rawText=t||' ';text.textContent=rawText;layout()}
 function pxPerSec(){return speed.value*size.value*0.11}
 function tick(t){
   if(!scrolling)return;
@@ -267,12 +300,12 @@ function stopScroll(){scrolling=false;cancelAnimationFrame(raf)}
 
 // Eventos de control táctil seguros con pointer-events en scroller
 let d0=null,y0=0,moved=false;
-scroller.addEventListener('pointerdown',e=>{d0=e.clientY;y0=y;moved=false;scroller.setPointerCapture(e.pointerId)});
-scroller.addEventListener('pointermove',e=>{if(d0===null)return;const d=d0-e.clientY;if(Math.abs(d)>6)moved=true;
+tp.addEventListener('pointerdown',e=>{d0=e.clientY;y0=y;moved=false;try{tp.setPointerCapture(e.pointerId)}catch(_){}});
+tp.addEventListener('pointermove',e=>{if(d0===null)return;const d=d0-e.clientY;if(Math.abs(d)>6)moved=true;
   if(moved){y=Math.min(maxY(),Math.max(0,y0+d));render()}});
-scroller.addEventListener('pointerup',()=>{if(d0!==null&&!moved){scrolling?stopScroll():startScroll()}d0=null;kickCam()});
-scroller.addEventListener('pointercancel',()=>{d0=null;kickCam()});
-document.addEventListener('touchmove',e=>{if(e.target.closest&&e.target.closest('#scroller'))e.preventDefault()},{passive:false});
+tp.addEventListener('pointerup',()=>{if(d0!==null&&!moved){scrolling?stopScroll():startScroll()}d0=null;kickCam()});
+tp.addEventListener('pointercancel',()=>{d0=null;kickCam()});
+document.addEventListener('touchmove',e=>{if(e.target.closest&&e.target.closest('#tp'))e.preventDefault()},{passive:false});
 
 /* Si la imagen de la cámara se queda quieta, la vuelve a arrancar sin tocar la grabación */
 function kickCam(){if(stream&&cam.paused)cam.play().catch(()=>{})}
@@ -321,7 +354,7 @@ function showDiag(){
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
   const f=Math.round((stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings().frameRate)||0);
-  $('diag').textContent=`v9.2 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
+  $('diag').textContent=`v9.3 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
