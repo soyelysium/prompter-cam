@@ -30,12 +30,12 @@ button{cursor:pointer}
 
 /* Prompter band (top, close to the lens) */
 .band{position:fixed;left:0;right:0;top:0;height:var(--band,44%);overflow:hidden;
-  background:linear-gradient(rgba(0,0,0,var(--shade,.62)) 70%,rgba(0,0,0,0));
+  background:linear-gradient(rgba(0,0,0,.62) 0%,rgba(0,0,0,.55) 30%,rgba(0,0,0,.28) 55%,rgba(0,0,0,.28) 100%);
   padding-top:env(safe-area-inset-top,0px)}
 .scroller{position:absolute;left:0;right:0;top:0;will-change:transform;
   padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
 .text{width:40%;max-width:30em;margin:0 auto;text-align:center;font-weight:700;line-height:1.3;white-space:pre-wrap;word-wrap:break-word;
-  text-shadow:0 1px 3px rgba(0,0,0,.8)}
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 14px rgba(0,0,0,.65)}
 .guide{position:absolute;left:0;right:0;height:0;border-top:2px dashed rgba(255,182,39,.55);pointer-events:none}
 .guide::before{content:"";position:absolute;left:4px;top:-8px;border:7px solid transparent;border-left-color:var(--accent)}
 
@@ -122,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 7 · 60 fps</p>
+    <p class="note">Versión 8 · texto completo</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -252,10 +252,12 @@ $('flip').onclick=async()=>{
 let y=0,scrolling=false,last=0,raf=0;
 const GUIDE_FRAC=0.38; // reading line inside the band
 function bandH(){return band.clientHeight}
-function guideY(){return bandH()*GUIDE_FRAC}
+// reading line stays where it was (same spot on screen); the band now reaches down to the controls
+function guideY(){return window.innerHeight*0.44*GUIDE_FRAC-(band.getBoundingClientRect().top||0)}
+function fitBand(){const b=document.getElementById('bar');if(b)band.style.height=Math.max(200,b.getBoundingClientRect().top)+'px'}
 function maxY(){return Math.max(0,text.offsetHeight-20)}
 function render(){scroller.style.transform=`translateY(${guideY()-y}px)`}
-function layout(){guide.style.top=guideY()+'px';render()}
+function layout(){fitBand();guide.style.top=guideY()+'px';render()}
 function setText(t){text.textContent=t||' ';layout()}
 function pxPerSec(){return speed.value*size.value*0.11}
 function tick(t){
@@ -312,7 +314,7 @@ function showDiag(){
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
   const f=Math.round((stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings().frameRate)||0);
-  $('diag').textContent=`v7 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
+  $('diag').textContent=`v8 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
