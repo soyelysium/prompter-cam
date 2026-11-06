@@ -122,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 10 · palabras completas</p>
+    <p class="note">Versión 11 · cámara estable</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -183,32 +183,26 @@ function frameSize(track){
     v.play().catch(()=>{});
   });
 }
-let audioStream=null;
+let audioStream=null,curC=null;
 async function openCam(){
   if(stream)stream.getVideoTracks().forEach(t=>t.stop());
   if(!audioStream||!audioStream.getAudioTracks().some(t=>t.readyState==='live')){
     audioStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
   }
   $('diag').textContent='Buscando la mejor calidad…';$('diag').hidden=false;
-  const base={facingMode:facing,frameRate:{ideal:60}};
+  const base={facingMode:facing,frameRate:{ideal:30}};
   const tries=[
-    {width:{exact:3840},height:{exact:2160},frameRate:{exact:60}},
-    {width:{exact:2160},height:{exact:3840},frameRate:{exact:60}},
     {width:{exact:1080},height:{exact:1920},frameRate:{exact:60}},
-    {width:{exact:2560},height:{exact:1440},frameRate:{exact:60}},
-    {width:{exact:2160},height:{exact:3840}},
-    {width:{exact:3840},height:{exact:2160}},
+    {width:{exact:1440},height:{exact:1920},frameRate:{exact:60}},
     {width:{exact:1080},height:{exact:1920}},
-    {width:{exact:3024},height:{exact:4032}},
-    {width:{exact:4032},height:{exact:3024}},
     {width:{exact:1440},height:{exact:1920}},
-    {width:{exact:2560},height:{exact:1440}},
+    {width:{exact:3840},height:{exact:2160}},
     {width:{exact:1920},height:{exact:1440}},
     {width:{ideal:1080},height:{ideal:1920}},
   ];
   // iPhone allows one live capture per camera, so test each option, stop it, then reopen the winner
   let bestC=null,bestScore=-1;const FULL=1080*1920;
-  const key='best60:'+facing,saved=store.get(key,'');
+  const key='best3:'+facing,saved=store.get(key,'');
   if(saved){try{tries.unshift(JSON.parse(saved))}catch(e){}}
   for(const c of tries){
     let s1;
@@ -226,6 +220,7 @@ async function openCam(){
   try{best=(await navigator.mediaDevices.getUserMedia({video:{...base,...(bestC||{})}})).getVideoTracks()[0]}
   catch(e){best=(await navigator.mediaDevices.getUserMedia({video:base})).getVideoTracks()[0]}
   if(bestC)store.set(key,JSON.stringify(bestC));
+  curC=bestC;
   stream=new MediaStream([best,...audioStream.getAudioTracks()]);
   cam.srcObject=stream;
   cam.onloadedmetadata=cam.onresize=showDiag;
@@ -302,7 +297,11 @@ function verticalStream(){
   const outH=Math.min(1920,Math.round(sh)),outW=Math.round(outH*R/2)*2;
   canvas.width=outW;canvas.height=outH-(outH%2);
   const ctx=canvas.getContext('2d');
-  const draw=()=>{ctx.drawImage(cam,sx,sy,sw,sh,0,0,canvas.width,canvas.height);drawRaf=requestAnimationFrame(draw)};
+  const draw=()=>{
+    const w=cam.videoWidth,h=cam.videoHeight;
+    if(w&&h){let x=0,y=0,cw=w,ch=h;if(w/h>R){cw=h*R;x=(w-cw)/2}else{ch=w/R;y=(h-ch)/2}
+      ctx.drawImage(cam,x,y,cw,ch,0,0,canvas.width,canvas.height)}
+    drawRaf=requestAnimationFrame(draw)};
   draw();
   camFps=Math.round((stream.getVideoTracks()[0].getSettings().frameRate)||30);
   canvasStream=canvas.captureStream(camFps>=50?60:30);
@@ -314,7 +313,7 @@ function showDiag(){
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
   const f=Math.round((stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings().frameRate)||0);
-  $('diag').textContent=`v10 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
+  $('diag').textContent=`v11 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
@@ -382,6 +381,32 @@ $('done').onclick=()=>{setText(script.value.trim()||EXAMPLE);y=0;$('sheet').hidd
 
 /* ---------- Screen awake ---------- */
 let wake=null;
+/* Watchdog: if the picture stops moving, reopen the camera (works mid-recording too) */
+let lastT=-1,stuckFor=0,restarts=[],reopening=false;
+async function reopenCam(){
+  if(reopening||!audioStream)return;reopening=true;
+  try{
+    restarts=restarts.filter(t=>Date.now()-t<60000);restarts.push(Date.now());
+    let c=curC||{};
+    if(restarts.length>=2)c={width:{ideal:1080},height:{ideal:1920}}; // keeps freezing: go lighter
+    if(stream)stream.getVideoTracks().forEach(t=>t.stop());
+    let v;
+    try{v=(await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,frameRate:{ideal:30},...c}})).getVideoTracks()[0]}
+    catch(e){v=(await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}})).getVideoTracks()[0]}
+    stream=new MediaStream([v,...audioStream.getAudioTracks()]);
+    cam.srcObject=stream;await cam.play().catch(()=>{});
+  }catch(e){}
+  reopening=false;lastT=-1;stuckFor=0;
+}
+setInterval(()=>{
+  if(!stream||document.visibilityState!=='visible'||!$('start').hidden)return;
+  const vt=stream.getVideoTracks()[0];
+  if(vt&&(vt.readyState==='ended')){reopenCam();return}
+  if(cam.paused){cam.play().catch(()=>{})}
+  if(cam.currentTime===lastT){stuckFor++;if(stuckFor>=2)reopenCam()}else{stuckFor=0}
+  lastT=cam.currentTime;
+},1000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream){lastT=-1;stuckFor=0;cam.play().catch(()=>{})}});
 async function lockScreen(){try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen')}catch(e){}}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&stream)lockScreen()});
 window.addEventListener('resize',layout);
