@@ -122,7 +122,7 @@ video.review{flex:1;min-height:0;width:100%;background:#000;border-radius:12px;o
     <h1>Prompter Cam</h1>
     <p class="note">Graba leyendo tu guion. El texto aparece arriba, cerca de la cámara, y no sale en el video.</p>
     <button class="primary" id="go">Activar cámara y micrófono</button>
-    <p class="note">Versión 8 · texto completo</p>
+    <p class="note">Versión 9 · audio para editores</p>
     <p class="note err" id="err" hidden></p>
   </div>
 </div>
@@ -314,7 +314,7 @@ function showDiag(){
   const R=9/16;let sw=vw,sh=vh;if(vw/vh>R){sw=vh*R}else{sh=vw/R}
   const oh=Math.min(1920,Math.round(sh)),ow=Math.round(oh*R/2)*2;
   const f=Math.round((stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings().frameRate)||0);
-  $('diag').textContent=`v8 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
+  $('diag').textContent=`v9 · cámara ${vw}×${vh} @${f}fps → video ${ow}×${oh-(oh%2)}`;
 }
 function endVertical(){
   cancelAnimationFrame(drawRaf);
@@ -328,7 +328,7 @@ function beginRecording(){
   catch(e){recorder=new MediaRecorder(src)}
   recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
   recorder.onstop=showReview;
-  recorder.start(1000);
+  recorder.start();
   t0=Date.now();timerEl.textContent='0:00';statusEl.hidden=false;
   timerInt=setInterval(()=>timerEl.textContent=fmt((Date.now()-t0)/1000),250);
   recBtn.classList.add('on');recBtn.setAttribute('aria-label','Detener');
